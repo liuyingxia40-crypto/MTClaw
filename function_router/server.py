@@ -933,7 +933,88 @@ async def qwen_health_check() -> bool:
         return False
 
 
-async def call_qwen(messages: list[dict[str, Any]]) -> dict[str, Any]:
+def _schema_tool_name(tool: dict[str, Any]) -> str | None:
+    """从OpenAI格式或普通格式的工具定义中读取工具名称。"""
+
+    if not isinstance(tool, dict):
+        return None
+
+    function_meta = tool.get("function")
+
+    if isinstance(function_meta, dict):
+        function_name = function_meta.get("name")
+
+        if isinstance(function_name, str) and function_name:
+            return function_name
+
+    direct_name = tool.get("name")
+
+    if isinstance(direct_name, str) and direct_name:
+        return direct_name
+
+    return None
+
+
+def _deterministic_employee_tool(user_text: str) -> str | None:
+    """为核心AI数字员工提供稳定、可扩展的确定性路由。"""
+
+    text = (user_text or "").strip().lower()
+
+    if not text:
+        return None
+
+    power_business_keywords = (
+        "电费稽核",
+        "电费账单",
+        "电费单",
+        "电度电费",
+        "基本电费",
+        "合同容量",
+        "最大需量",
+        "功率因数",
+        "峰平谷",
+        "综合电价",
+        "容量单价",
+        "容量优化",
+        "稽核工单",
+        "电费台账",
+    )
+
+    power_action_keywords = (
+        "核验",
+        "稽核",
+        "审计",
+        "复核",
+        "检查",
+        "测算",
+        "创建工单",
+        "登记台账",
+    )
+
+    matched_business_keywords = sum(
+        1
+        for keyword in power_business_keywords
+        if keyword in text
+    )
+
+    has_power_action = any(
+        keyword in text
+        for keyword in power_action_keywords
+    )
+
+    # 至少命中两个电费业务特征，并且用户要求执行相关动作，
+    # 才确定性分发，避免普通聊天中的偶然关键词误触发。
+    if matched_business_keywords >= 2 and has_power_action:
+        return "power_bill_audit_subagent"
+
+    return None
+
+
+async def call_qwen(
+    messages: list[dict[str, Any]],
+    *,
+    forced_tool_name: str | None = None,
+) -> dict[str, Any]:
     """Send a non-streaming chat completion request to the local Qwen endpoint.
 
     Retries once on timeout with a small random jitter to ride out brief
@@ -944,17 +1025,41 @@ async def call_qwen(messages: list[dict[str, Any]]) -> dict[str, Any]:
     if STATE.http_client is None or STATE.config is None or STATE.tools is None:
         raise RuntimeError("application state is not initialized")
 
+    selected_tools = STATE.tools
+
+    if forced_tool_name:
+        selected_tools = [
+            tool
+            for tool in STATE.tools
+            if _schema_tool_name(tool) == forced_tool_name
+        ]
+
+        if not selected_tools:
+            raise RuntimeError(
+                f"deterministic route tool not loaded: "
+                f"{forced_tool_name}"
+            )
+
     payload = {
         "model": STATE.config.routing.model,
         "messages": messages,
-        "tools": STATE.tools,
+        "tools": selected_tools,
         "stream": False,
         "temperature": 0.0,
         "repetition_penalty": 1.2,
         "frequency_penalty": 0.2,
         "parallel_tool_calls": False,
-        "enable_thinking": False,
+        "thinking": {"type": "disabled"},
     }
+
+    if forced_tool_name:
+        payload["tool_choice"] = {
+            "type": "function",
+            "function": {
+                "name": forced_tool_name
+            },
+        }
+
     headers = {
         "Authorization": f"Bearer {STATE.config.routing.api_key}",
         "Content-Type": "application/json",
@@ -1006,7 +1111,7 @@ async def warmup_qwen() -> bool:
         "repetition_penalty": 1.2,
         "frequency_penalty": 0.2,
         "parallel_tool_calls": False,
-        "enable_thinking": False,
+        "thinking": {"type": "disabled"},
     }
     try:
         response = await STATE.http_client.post(
@@ -1264,6 +1369,284 @@ def _find_delegated_tool_continuation(
     return None
 
 
+
+def _extract_business_number(
+    text: str,
+    patterns: tuple[str, ...],
+) -> float | None:
+    """从中文业务描述中提取数字。"""
+
+    normalized = text.replace(",", "").replace("，", "")
+
+    for pattern in patterns:
+        match = re.search(
+            pattern,
+            normalized,
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            try:
+                return float(match.group(1))
+            except (TypeError, ValueError):
+                continue
+
+    return None
+
+
+def _extract_power_bill_audit_arguments(
+    user_text: str,
+) -> dict[str, Any] | None:
+    """从自然语言中提取电费稽核工具参数。"""
+
+    text = (user_text or "").strip()
+
+    if not text:
+        return None
+
+    arguments: dict[str, Any] = {
+        "action": "audit",
+    }
+
+    # 项目名称：优先识别“核验 + 项目名 + 年月”
+    project_patterns = (
+        r"(?:核验|稽核|复核|检查)\s*"
+        r"([^，。；:：]{2,50}?)"
+        r"(?=20\d{2}年\d{1,2}月)",
+        r"(?:项目名称|企业名称|客户名称)"
+        r"\s*[:：]\s*([^，。；:：]{2,50})",
+    )
+
+    for pattern in project_patterns:
+        match = re.search(pattern, text)
+
+        if match:
+            project_name = match.group(1).strip()
+
+            # 清理可能夹带的动作词
+            project_name = re.sub(
+                r"^(?:请|为|对|执行|进行)",
+                "",
+                project_name,
+            ).strip()
+
+            if project_name:
+                arguments["project_name"] = project_name
+                break
+
+    # 账单月份
+    month_match = re.search(
+        r"(20\d{2})年(\d{1,2})月",
+        text,
+    )
+
+    if not month_match:
+        month_match = re.search(
+            r"(20\d{2})[-/](\d{1,2})",
+            text,
+        )
+
+    if month_match:
+        year = int(month_match.group(1))
+        month = int(month_match.group(2))
+        arguments["billing_month"] = f"{year:04d}-{month:02d}"
+
+    field_patterns: dict[str, tuple[str, ...]] = {
+        "electricity_kwh": (
+            r"用电量\s*([0-9.]+)\s*(?:kwh|千瓦时)",
+        ),
+        "energy_charge_cny": (
+            r"电度电费\s*([0-9.]+)\s*元",
+        ),
+        "basic_charge_cny": (
+            r"基本电费\s*([0-9.]+)\s*元",
+        ),
+        "power_factor_adjustment_cny": (
+            r"功率因数(?:调整)?电费\s*([0-9.]+)\s*元",
+        ),
+        "other_charge_cny": (
+            r"其他费用\s*([0-9.]+)\s*元",
+        ),
+        "total_charge_cny": (
+            r"(?:总电费|账单总额|总额)\s*([0-9.]+)\s*元",
+        ),
+        "contract_capacity_kva": (
+            r"合同容量\s*([0-9.]+)\s*kva",
+        ),
+        "max_demand_kw": (
+            r"最大需量\s*([0-9.]+)\s*kw",
+        ),
+        "basic_capacity_rate_cny_per_kva_month": (
+            r"(?:容量基本电费单价|容量单价)"
+            r"\s*([0-9.]+)\s*元",
+        ),
+        "baseline_unit_cost_cny_per_kwh": (
+            r"(?:历史基准综合电价|基准综合电价)"
+            r"\s*([0-9.]+)\s*元",
+        ),
+    }
+
+    for field_name, patterns in field_patterns.items():
+        value = _extract_business_number(
+            text,
+            patterns,
+        )
+
+        if value is not None:
+            arguments[field_name] = value
+
+    # 两个主程序必填项必须能提取出来；
+    # 否则继续使用原模型路由，避免错误执行。
+    if not arguments.get("project_name"):
+        return None
+
+    if not arguments.get("billing_month"):
+        return None
+
+    return arguments
+
+
+
+def _format_internal_employee_result(
+    function_name: str,
+    result: dict[str, Any],
+) -> str:
+    """只使用工具真实返回值生成用户可见结果，不让模型二次编造。"""
+
+    if not isinstance(result, dict):
+        return (
+            f"{function_name}执行完成，但返回格式不是有效业务对象。"
+        )
+
+    if result.get("result") != "ok":
+        error_message = (
+            result.get("message")
+            or result.get("error")
+            or "未知错误"
+        )
+        return (
+            f"数字员工执行失败。\n\n"
+            f"- 员工：{result.get('employee') or function_name}\n"
+            f"- 原因：{error_message}"
+        )
+
+    employee = result.get("employee") or function_name
+    message = result.get("message") or "任务执行完成"
+
+    lines = [
+        f"## {employee}执行完成",
+        "",
+        message,
+    ]
+
+    visible_result = result.get("visible_result")
+
+    if isinstance(visible_result, dict) and visible_result:
+        lines.extend([
+            "",
+            "### 执行结果",
+        ])
+
+        for key, value in visible_result.items():
+            lines.append(f"- {key}：{value}")
+
+    audit = result.get("audit")
+
+    if isinstance(audit, dict) and audit:
+        lines.extend([
+            "",
+            "### 稽核指标",
+        ])
+
+        audit_fields = (
+            ("audit_id", "稽核记录编号"),
+            ("bill_total_cny", "账单总额"),
+            ("component_total_cny", "费用分项合计"),
+            ("bill_difference_cny", "账单差异"),
+            ("unit_cost_cny_per_kwh", "综合用电单价"),
+            ("capacity_utilization_percent", "容量利用率"),
+            ("recommended_capacity_scenario_kva", "建议容量情景值"),
+            ("estimated_monthly_saving_cny", "预计月度节省"),
+            ("estimated_annual_saving_cny", "预计年度节省"),
+        )
+
+        for field_name, label in audit_fields:
+            if field_name in audit:
+                lines.append(f"- {label}：{audit[field_name]}")
+
+    anomalies = result.get("anomalies")
+
+    if isinstance(anomalies, list) and anomalies:
+        lines.extend([
+            "",
+            "### 发现的异常",
+        ])
+
+        for index, anomaly in enumerate(anomalies, start=1):
+            if not isinstance(anomaly, dict):
+                continue
+
+            severity = anomaly.get("severity", "未分级")
+            code = anomaly.get("code", "")
+            message_text = anomaly.get("message", "")
+
+            lines.append(
+                f"{index}. 【{severity}】{message_text}"
+                + (f"（{code}）" if code else "")
+            )
+
+    work_order = result.get("work_order")
+
+    if isinstance(work_order, dict) and work_order:
+        lines.extend([
+            "",
+            "### 稽核工单",
+            f"- 工单编号：{work_order.get('work_order_id', '')}",
+            f"- 状态：{work_order.get('status', '')}",
+            f"- 优先级：{work_order.get('priority', '')}",
+            f"- 创建时间：{work_order.get('created_at', '')}",
+        ])
+
+    changes = result.get("business_state_changes")
+
+    if isinstance(changes, list) and changes:
+        lines.extend([
+            "",
+            "### 业务状态变化",
+        ])
+
+        for change in changes:
+            if not isinstance(change, dict):
+                continue
+
+            lines.append(
+                f"- {change.get('business_object', '业务对象')}："
+                f"{change.get('before', '')}"
+                f" → {change.get('after', '')}"
+            )
+
+    recommendations = result.get("recommendations")
+
+    if isinstance(recommendations, list) and recommendations:
+        lines.extend([
+            "",
+            "### 后续建议",
+        ])
+
+        for index, recommendation in enumerate(
+            recommendations,
+            start=1,
+        ):
+            lines.append(f"{index}. {recommendation}")
+
+    lines.extend([
+        "",
+        "> 以上编号、金额、状态及业务记录均来自员工脚本的真实执行结果。",
+    ])
+
+    return "\n".join(lines)
+
+
 @dataclass(slots=True)
 class ToolLoopResult:
     """Result from the Qwen tool selection and execution loop."""
@@ -1286,6 +1669,7 @@ class ToolLoopResult:
     # Each entry: {kind, round, request_timestamp, response_timestamp, model}
     llm_calls: list[dict[str, Any]] = field(default_factory=list)
     delegated_tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    direct_response: str | None = None
 
 
 async def run_tool_loop(
@@ -1321,6 +1705,109 @@ async def run_tool_loop(
     routing_model_name = STATE.config.routing.model if STATE.config else ""
     llm_calls: list[dict[str, Any]] = []
     delegated_tool_names = set(delegated_tool_names or ())
+    forced_tool_name = _deterministic_employee_tool(user_text)
+
+    if forced_tool_name and STATE.logger is not None:
+        STATE.logger.info(
+            "deterministic employee route selected: %s",
+            forced_tool_name,
+        )
+
+    # 核心数字员工由Function Router直接执行。
+    # OpenClaw只负责接收并展示最终结果，避免委托工具调用反复循环。
+    if (
+        forced_tool_name == "power_bill_audit_subagent"
+        and resume_tool_context is None
+    ):
+        deterministic_arguments = (
+            _extract_power_bill_audit_arguments(user_text)
+        )
+
+        if deterministic_arguments is not None:
+            arguments_json = json.dumps(
+                deterministic_arguments,
+                ensure_ascii=False,
+            )
+
+            tool_call_id = (
+                "call_power_bill_audit_"
+                f"{int(time.time() * 1000)}"
+            )
+
+            deterministic_tool_call = (
+                _normalize_tool_call_for_response(
+                    {
+                        "id": tool_call_id,
+                        "type": "function",
+                        "function": {
+                            "name": forced_tool_name,
+                            "arguments": arguments_json,
+                        },
+                    },
+                    fallback_id=tool_call_id,
+                )
+            )
+
+            assistant_message = {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    deterministic_tool_call,
+                ],
+            }
+
+            # 在Router服务器内部真实执行员工脚本
+            deterministic_tool_result = await execute_tool(
+                forced_tool_name,
+                arguments_json,
+            )
+
+            tool_message = {
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "name": forced_tool_name,
+                "content": json.dumps(
+                    deterministic_tool_result,
+                    ensure_ascii=False,
+                ),
+            }
+
+            if STATE.logger is not None:
+                STATE.logger.info(
+                    "deterministic employee executed internally: "
+                    "%s result=%s",
+                    forced_tool_name,
+                    json.dumps(
+                        deterministic_tool_result,
+                        ensure_ascii=False,
+                    )[:2000],
+                )
+
+            direct_response = _format_internal_employee_result(
+                forced_tool_name,
+                deterministic_tool_result,
+            )
+
+            return ToolLoopResult(
+                used_any_tool=True,
+                last_function_name=forced_tool_name,
+                tool_rounds=1,
+                tool_context=[
+                    *messages[1:],
+                    assistant_message,
+                    tool_message,
+                ],
+                max_rounds_exhausted=False,
+                qwen_reply=None,
+                _loop_messages=[
+                    *messages,
+                    assistant_message,
+                    tool_message,
+                ],
+                llm_calls=[],
+                delegated_tool_calls=[],
+                direct_response=direct_response,
+            )
 
     if resume_tool_context:
         messages.extend(dict(message) for message in resume_tool_context)
@@ -1342,7 +1829,14 @@ async def run_tool_loop(
 
     for round_index in range(1, max_rounds + 1):
         llm_req_ts = now_iso()
-        response_json = await call_qwen(messages)
+        response_json = await call_qwen(
+            messages,
+            forced_tool_name=(
+                forced_tool_name
+                if round_index == 1
+                else None
+            ),
+        )
         llm_resp_ts = now_iso()
         llm_calls.append({
             "kind": "qwen_tool_loop",
@@ -1560,7 +2054,7 @@ async def call_qwen_completion_check(
         "temperature": 0.0,
         "repetition_penalty": 1.2,
         "frequency_penalty": 0.2,
-        "enable_thinking": False,
+        "thinking": {"type": "disabled"},
     }
     headers = {
         "Authorization": f"Bearer {STATE.config.routing.api_key}",
@@ -2417,6 +2911,50 @@ async def chat_completions(request: Request) -> StreamingResponse:
                 latency_ms=round((time.perf_counter() - started_at) * 1000, 2),
             )
             return response
+
+        if result.direct_response is not None:
+            _record_tool_history(
+                user_text,
+                result.tool_context,
+                tool_rounds,
+                session_key,
+                llm_calls=result.llm_calls,
+            )
+
+            log_request(
+                user_message=user_text,
+                route="function",
+                function_name=function_name,
+                tool_rounds=tool_rounds,
+                latency_ms=(
+                    time.perf_counter() - started_at
+                ) * 1000,
+                status="internal_tool_completed",
+            )
+
+            _debug_log(
+                "route_decision",
+                session_key=session_key,
+                route="function",
+                status="internal_tool_completed",
+                function_name=function_name,
+                tool_rounds=tool_rounds,
+                latency_ms=round(
+                    (
+                        time.perf_counter()
+                        - started_at
+                    ) * 1000,
+                    2,
+                ),
+            )
+
+            return _build_completion_response(
+                result.direct_response,
+                stream=original_request.get(
+                    "stream",
+                    False,
+                ),
+            )
 
         if not result.used_any_tool:
             if _fr_only_mode():

@@ -24,3 +24,5 @@ env/
 .idea/
 .vscode/
 .DS_Store
+function_router/server.py.bak-*
+plugins/fr-tools/openclaw.plugin.json.bak
