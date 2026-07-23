@@ -1652,7 +1652,7 @@ def _extract_energy_carbon_delivery_arguments(
     }
 
 
-def _extract_carbon_asset_arguments(
+def _extract_carbon_asset_arguments_legacy(
     user_text: str,
 ) -> dict[str, Any]:
     """从自然语言中提取碳资产运营参数。"""
@@ -1901,6 +1901,103 @@ def _extract_carbon_asset_arguments(
         )
 
     return arguments
+
+# natural-carbon-portfolio-wrapper-v1
+def _extract_carbon_asset_arguments(
+    user_text: str,
+) -> dict[str, Any]:
+    """识别碳资产余额、组合、注销量和估值查询。"""
+
+    text = (user_text or "").strip()
+
+    if not text:
+        return {}
+
+    portfolio_keywords = (
+        "资产组合",
+        "碳资产组合",
+        "碳资产余额",
+        "资产余额",
+        "还有多少",
+        "剩余多少",
+        "可用多少",
+        "可以使用",
+        "可使用",
+        "当前可用",
+        "已经注销",
+        "已注销",
+        "注销了多少",
+        "累计注销",
+        "组合估值",
+        "资产估值",
+        "值多少钱",
+        "大概值多少",
+        "总价值",
+    )
+
+    query_keywords = (
+        "多少",
+        "查询",
+        "看看",
+        "目前",
+        "现在",
+        "余额",
+        "组合",
+        "估值",
+        "价值",
+    )
+
+    asset_id_match = re.search(
+        r"\bCA-[A-Z0-9-]+\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    is_portfolio_query = (
+        any(
+            keyword in text
+            for keyword in portfolio_keywords
+        )
+        or (
+            "碳资产" in text
+            and any(
+                keyword in text
+                for keyword in query_keywords
+            )
+        )
+    )
+
+    if is_portfolio_query and not asset_id_match:
+        arguments: dict[str, Any] = {
+            "action": 'get_portfolio',
+        }
+
+        owner_patterns = (
+            r"所有者(?:为|是|：|:)?\s*"
+            r"([^，。；;？?]+?)(?:的)?碳资产",
+            r"属于\s*"
+            r"([^，。；;？?]+?)(?:的)?碳资产",
+            r"查询\s*"
+            r"([^，。；;？?]+?)(?:的)?碳资产组合",
+        )
+
+        owner_value = None
+
+        for pattern in owner_patterns:
+            match = re.search(pattern, text)
+
+            if match:
+                owner_value = match.group(1).strip()
+                break
+
+        if owner_value and 'owner':
+            arguments['owner'] = owner_value
+
+        return arguments
+
+    return _extract_carbon_asset_arguments_legacy(
+        user_text
+    )
 
 
 def _extract_retrofit_project_arguments(
@@ -3253,6 +3350,222 @@ async def run_tool_loop(
                 qwen_reply=content or None,
                 _loop_messages=messages,
                 llm_calls=llm_calls,
+            )
+
+        # model-selected-core-subagent-internal-v1
+        # 即使工具由路由模型选中，四个核心业务Subagent
+        # 也由Function Router内部执行，不向用户暴露tool_calls。
+        core_internal_subagents = {
+            "energy_carbon_delivery_subagent",
+            "power_bill_audit_subagent",
+            "retrofit_project_manager_subagent",
+            "carbon_asset_operations_subagent",
+        }
+
+        selected_function_names = [
+            _tool_call_function_name(tool_call)
+            for tool_call in tool_calls
+        ]
+
+        should_execute_core_internally = (
+            bool(tool_calls)
+            and all(
+                function_name
+                in core_internal_subagents
+                for function_name
+                in selected_function_names
+            )
+            and resume_tool_context is None
+        )
+
+        if should_execute_core_internally:
+            used_any_tool = True
+            formatted_results: list[str] = []
+
+            for call_index, tool_call in enumerate(
+                tool_calls,
+                start=1,
+            ):
+                function_name = (
+                    _tool_call_function_name(tool_call)
+                )
+                last_function_name = function_name
+
+                normalized_call = (
+                    _normalize_tool_call_for_response(
+                        tool_call,
+                        fallback_id=(
+                            f"call_{function_name}_"
+                            f"{round_index}_{call_index}"
+                        ),
+                    )
+                )
+
+                function_meta = (
+                    normalized_call.get("function")
+                    or {}
+                )
+                arguments_json = (
+                    function_meta.get("arguments")
+                    or "{}"
+                )
+
+                tool_result = await execute_tool(
+                    function_name,
+                    arguments_json,
+                )
+
+                # retrofit-single-project-drilldown-v1
+                # 当模型只执行项目列表查询，但用户实际询问
+                # 进度、预算、任务、逾期或风险时：
+                # 如果当前只有一个项目，则自动下钻查询项目详情。
+                if (
+                    function_name
+                    == "retrofit_project_manager_subagent"
+                    and isinstance(tool_result, dict)
+                    and isinstance(
+                        tool_result.get("projects"),
+                        list,
+                    )
+                ):
+                    retrofit_projects = [
+                        project
+                        for project in tool_result.get(
+                            "projects",
+                            [],
+                        )
+                        if isinstance(project, dict)
+                    ]
+
+                    retrofit_detail_keywords = (
+                        "进度",
+                        "进行到哪",
+                        "哪一步",
+                        "预算",
+                        "用了多少",
+                        "还剩多少",
+                        "任务",
+                        "逾期",
+                        "风险",
+                        "项目情况",
+                        "现在怎么样",
+                        "当前情况",
+                    )
+
+                    wants_retrofit_detail = any(
+                        keyword in user_text
+                        for keyword
+                        in retrofit_detail_keywords
+                    )
+
+                    if (
+                        wants_retrofit_detail
+                        and len(retrofit_projects) == 1
+                    ):
+                        matched_project_id = str(
+                            retrofit_projects[0].get(
+                                "project_id",
+                                "",
+                            )
+                        ).strip()
+
+                        if matched_project_id:
+                            detail_arguments_json = (
+                                json.dumps(
+                                    {
+                                        "action": "get_project",
+                                        "project_id":
+                                            matched_project_id,
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            )
+
+                            detail_result = await execute_tool(
+                                function_name,
+                                detail_arguments_json,
+                            )
+
+                            if (
+                                isinstance(
+                                    detail_result,
+                                    dict,
+                                )
+                                and detail_result.get(
+                                    "result"
+                                ) == "ok"
+                            ):
+                                tool_result = detail_result
+                                arguments_json = (
+                                    detail_arguments_json
+                                )
+
+                                if STATE.logger is not None:
+                                    STATE.logger.info(
+                                        "retrofit project list "
+                                        "auto-expanded to detail: "
+                                        "%s",
+                                        matched_project_id,
+                                    )
+
+                if not isinstance(tool_result, dict):
+                    tool_result = {
+                        "result": "error",
+                        "message": str(tool_result),
+                    }
+
+                tool_message = {
+                    "role": "tool",
+                    "tool_call_id": (
+                        normalized_call.get("id")
+                        or (
+                            f"call_{function_name}_"
+                            f"{round_index}_{call_index}"
+                        )
+                    ),
+                    "name": function_name,
+                    "content": json.dumps(
+                        tool_result,
+                        ensure_ascii=False,
+                    ),
+                    "timestamp": now_iso(),
+                }
+
+                messages.append(tool_message)
+
+                formatted_results.append(
+                    _format_internal_employee_result(
+                        function_name,
+                        tool_result,
+                    )
+                )
+
+                if STATE.logger is not None:
+                    STATE.logger.info(
+                        "model-selected core Subagent "
+                        "executed internally: %s result=%s",
+                        function_name,
+                        json.dumps(
+                            tool_result,
+                            ensure_ascii=False,
+                        )[:2000],
+                    )
+
+            direct_response = "\n\n---\n\n".join(
+                formatted_results
+            )
+
+            return ToolLoopResult(
+                used_any_tool=True,
+                last_function_name=last_function_name,
+                tool_rounds=round_index,
+                tool_context=messages[1:],
+                max_rounds_exhausted=False,
+                qwen_reply=None,
+                _loop_messages=messages,
+                llm_calls=llm_calls,
+                delegated_tool_calls=[],
+                direct_response=direct_response,
             )
 
         if _tool_calls_are_delegated(tool_calls, delegated_tool_names):
