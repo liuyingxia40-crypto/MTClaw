@@ -28,3 +28,5 @@ function_router/server.py.bak-*
 plugins/fr-tools/openclaw.plugin.json.bak
 backups/
 *.pyc
+*.bak-*
+*.broken-*
