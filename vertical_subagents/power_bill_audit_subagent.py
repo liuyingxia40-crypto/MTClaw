@@ -265,7 +265,7 @@ def build_duplicate_result(
 
     return {
         "result": "ok",
-        "employee": "AI电费稽核员工",
+        "employee": "电费账单稽核 Subagent",
         "message": (
             "检测到完全相同的账单请求，"
             "已返回已有稽核结果，未重复创建工单或台账。"
@@ -856,7 +856,7 @@ def _audit_bill_unlocked(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "result": "ok",
-        "employee": "AI电费稽核员工",
+        "employee": "电费账单稽核 Subagent",
         "message": "电费账单核验完成",
         "visible_result": {
             "项目": project_name,
@@ -934,7 +934,7 @@ def list_records(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not LEDGER_FILE.exists():
         return {
             "result": "ok",
-            "employee": "AI电费稽核员工",
+            "employee": "电费账单稽核 Subagent",
             "records": []
         }
 
@@ -950,7 +950,7 @@ def list_records(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "result": "ok",
-        "employee": "AI电费稽核员工",
+        "employee": "电费账单稽核 Subagent",
         "record_count": len(records),
         "records": records
     }
@@ -977,7 +977,7 @@ def get_work_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "result": "ok",
-        "employee": "AI电费稽核员工",
+        "employee": "电费账单稽核 Subagent",
         "work_order": work_order
     }
 
@@ -1005,7 +1005,7 @@ def main() -> None:
     except Exception as error:
         result = {
             "result": "error",
-            "employee": "AI电费稽核员工",
+            "employee": "电费账单稽核 Subagent",
             "message": str(error)
         }
 

@@ -956,7 +956,153 @@ def _schema_tool_name(tool: dict[str, Any]) -> str | None:
 
 
 def _deterministic_employee_tool(user_text: str) -> str | None:
-    """为核心AI数字员工提供稳定、可扩展的确定性路由。"""
+    # official-subagent-route-aliases
+    official_subagent_text = (user_text or "").lower()
+
+    official_subagent_routes = (
+        (
+            (
+                "能碳诊断报告 subagent",
+                "能碳报告 subagent",
+                "energy carbon delivery subagent",
+            ),
+            "energy_carbon_delivery_subagent",
+        ),
+        (
+            (
+                "电费账单稽核 subagent",
+                "电费稽核 subagent",
+                "power bill audit subagent",
+            ),
+            "power_bill_audit_subagent",
+        ),
+        (
+            (
+                "节能改造项目管理 subagent",
+                "改造项目管理 subagent",
+                "retrofit project manager subagent",
+            ),
+            "retrofit_project_manager_subagent",
+        ),
+        (
+            (
+                "碳资产运营 subagent",
+                "碳资产管理 subagent",
+                "carbon asset operations subagent",
+            ),
+            "carbon_asset_operations_subagent",
+        ),
+    )
+
+    for aliases, tool_name in official_subagent_routes:
+        if any(
+            alias in official_subagent_text
+            for alias in aliases
+        ):
+            return tool_name
+
+    # energy-carbon-delivery-deterministic-route
+    delivery_route_text = (user_text or "").lower()
+
+    delivery_keywords = (
+        "ai能碳诊断报告 Subagent",
+        "能碳诊断报告 Subagent",
+        "能碳诊断报告",
+        "能碳报告",
+        "能源碳排放报告",
+        "生成并交付",
+        "生成报告并交付",
+        "报告下载地址",
+        "报告下载链接",
+        "导出pdf",
+        "pdf报告",
+        "客户交付邮件",
+        "交付执行日志",
+    )
+
+    power_exclusion_keywords = (
+        "电费账单",
+        "电费稽核",
+        "电费核验",
+        "电度电费",
+        "基本电费",
+        "合同容量",
+        "最大需量",
+        "功率因数",
+        "峰平谷电价",
+    )
+
+    if (
+        any(
+            keyword in delivery_route_text
+            for keyword in delivery_keywords
+        )
+        and not any(
+            keyword in delivery_route_text
+            for keyword in power_exclusion_keywords
+        )
+    ):
+        return "energy_carbon_delivery_subagent"
+
+    # carbon-asset-operations-deterministic-route
+    carbon_route_text = (user_text or "").lower()
+
+    carbon_route_keywords = (
+        "碳资产运营 Subagent",
+        "碳资产",
+        "ccer",
+        "碳配额",
+        "履约注销",
+        "碳资产注销",
+        "碳资产登记",
+        "碳资产组合",
+        "组合估值",
+        "碳资产余额",
+        "碳资产交易",
+        "碳交易记录",
+        "买入碳资产",
+        "卖出碳资产",
+        "转入碳资产",
+        "转出碳资产",
+        "ca-",
+        "ct-",
+    )
+
+    if any(
+        keyword in carbon_route_text
+        for keyword in carbon_route_keywords
+    ):
+        return "carbon_asset_operations_subagent"
+
+    # retrofit-project-manager-deterministic-route
+    retrofit_route_text = (user_text or "").lower()
+
+    retrofit_route_keywords = (
+        "改造项目",
+        "项目管理员工",
+        "项目管理",
+        "项目进度",
+        "项目任务",
+        "项目预算",
+        "项目里程碑",
+        "项目风险",
+        "创建项目",
+        "项目立项",
+        "新增任务",
+        "添加任务",
+        "更新任务",
+        "查询项目",
+        "retrofit",
+        "rp-",
+        "task-",
+    )
+
+    if any(
+        keyword in retrofit_route_text
+        for keyword in retrofit_route_keywords
+    ):
+        return "retrofit_project_manager_subagent"
+    """为核心AI业务 Subagent提供稳定、可扩展的确定性路由。"""
 
     text = (user_text or "").strip().lower()
 
@@ -1394,6 +1540,676 @@ def _extract_business_number(
     return None
 
 
+
+
+
+def _extract_energy_carbon_delivery_arguments(
+    user_text: str,
+) -> dict[str, Any]:
+    """提取能碳诊断报告 Subagent的项目查询名称。"""
+
+    import re as _re
+
+    text = (user_text or "").strip()
+
+    def clean_name(value: str) -> str:
+        name = value.strip(
+            " \t\r\n：:，,。；;“”\"'"
+        )
+
+        name = _re.sub(
+            r"^(?:请|给|针对)\s*",
+            "",
+            name,
+        )
+
+        name = _re.sub(
+            r"\s*20\d{2}年度?$",
+            "",
+            name,
+        )
+
+        return name.strip()
+
+    project_query = ""
+
+    # 1. 项目名称：朝阳云庭酒店
+    match = _re.search(
+        r"(?:项目名称|项目名)[：:]\s*"
+        r"([^，。；;\n]+)",
+        text,
+    )
+
+    if match:
+        project_query = clean_name(
+            match.group(1)
+        )
+
+    # 2. 为朝阳云庭酒店生成报告
+    # (?<!作) 避免匹配“作为能碳诊断报告 Subagent”
+    if not project_query:
+        match = _re.search(
+            r"(?<!作)为\s*"
+            r"([^，。；;\n]{2,60}?)"
+            r"(?=\s*(?:生成|制作|导出|交付))",
+            text,
+        )
+
+        if match:
+            project_query = clean_name(
+                match.group(1)
+            )
+
+    # 3. 调取/读取/查找某项目
+    if not project_query:
+        match = _re.search(
+            r"(?:调取|读取|查找)\s*[“\"']?"
+            r"([^”\"'，。；;\n]{2,60}?)"
+            r"(?=\s*(?:项目|数据|报告|，|。|$))",
+            text,
+        )
+
+        if match:
+            project_query = clean_name(
+                match.group(1)
+            )
+
+    # 4. 根据酒店、大厦、园区等名称兜底
+    if not project_query:
+        candidates = _re.findall(
+            r"[\u4e00-\u9fffA-Za-z0-9·_-]{2,30}?"
+            r"(?:酒店|大厦|园区|写字楼)",
+            text,
+        )
+
+        for candidate in candidates:
+            candidate = clean_name(candidate)
+
+            if (
+                "员工" not in candidate
+                and "报告" not in candidate
+                and "AI" not in candidate
+            ):
+                project_query = candidate
+                break
+
+    invalid_names = {
+        "",
+        "项目",
+        "能碳报告",
+        "AI能碳报告",
+        "能碳诊断报告 Subagent",
+        "能碳诊断报告 Subagent",
+    }
+
+    if project_query in invalid_names:
+        raise ValueError(
+            "未能从请求中识别有效项目名称"
+        )
+
+    return {
+        "project_query": project_query,
+    }
+
+
+def _extract_carbon_asset_arguments(
+    user_text: str,
+) -> dict[str, Any]:
+    """从自然语言中提取碳资产运营参数。"""
+
+    import re as _re
+
+    text = (user_text or "").strip()
+    arguments: dict[str, Any] = {}
+
+    asset_id_match = _re.search(
+        r"\bCA-\d{14}-[A-Za-z0-9]{6}\b",
+        text,
+        flags=_re.IGNORECASE,
+    )
+
+    if asset_id_match:
+        arguments["asset_id"] = (
+            asset_id_match.group(0).upper()
+        )
+
+    if any(
+        keyword in text
+        for keyword in (
+            "交易记录",
+            "交易台账",
+            "操作记录",
+            "历史交易",
+        )
+    ):
+        arguments["action"] = "list_transactions"
+
+    elif any(
+        keyword in text
+        for keyword in (
+            "资产组合",
+            "组合估值",
+            "资产汇总",
+            "全部碳资产",
+            "所有碳资产",
+            "碳资产总量",
+        )
+    ):
+        arguments["action"] = "get_portfolio"
+
+    elif any(
+        keyword in text
+        for keyword in (
+            "履约注销",
+            "碳资产注销",
+            "注销碳资产",
+            "注销",
+        )
+    ):
+        arguments["action"] = "retire_asset"
+
+    elif any(
+        keyword in text
+        for keyword in (
+            "登记碳资产",
+            "注册碳资产",
+            "新增碳资产",
+            "碳资产登记",
+        )
+    ):
+        arguments["action"] = "register_asset"
+
+    elif any(
+        keyword in text
+        for keyword in (
+            "买入",
+            "卖出",
+            "转入",
+            "转出",
+            "记录交易",
+            "碳资产交易",
+        )
+    ):
+        arguments["action"] = "record_transaction"
+
+    elif asset_id_match:
+        arguments["action"] = "get_asset"
+
+    else:
+        arguments["action"] = "get_portfolio"
+
+    transaction_types = (
+        ("履约注销", "retire"),
+        ("注销", "retire"),
+        ("买入", "buy"),
+        ("卖出", "sell"),
+        ("转入", "transfer_in"),
+        ("转出", "transfer_out"),
+    )
+
+    for keyword, transaction_type in transaction_types:
+        if keyword in text:
+            arguments["transaction_type"] = transaction_type
+            break
+
+    asset_name_match = _re.search(
+        r"(?:资产名称|资产名)[：:]\s*"
+        r"([^，。；;\n]+)",
+        text,
+    )
+
+    if asset_name_match:
+        arguments["asset_name"] = (
+            asset_name_match.group(1).strip()
+        )
+
+    owner_match = _re.search(
+        r"(?:所有者|资产所有者|持有人|持有主体)"
+        r"[：:]\s*"
+        r"([^，。；;\n]+)",
+        text,
+    )
+
+    if owner_match:
+        arguments["owner"] = (
+            owner_match.group(1).strip()
+        )
+
+    project_match = _re.search(
+        r"(?:所属项目|项目名称)[：:]\s*"
+        r"([^，。；;\n]+)",
+        text,
+    )
+
+    if project_match:
+        arguments["project_name"] = (
+            project_match.group(1).strip()
+        )
+
+    year_match = _re.search(
+        r"(?:签发年份|资产年份|年份)"
+        r"[：:]?\s*(20\d{2})",
+        text,
+    )
+
+    if year_match:
+        arguments["vintage_year"] = (
+            year_match.group(1)
+        )
+
+    if "CCER" in text.upper():
+        arguments["asset_type"] = "CCER"
+    elif "碳配额" in text:
+        arguments["asset_type"] = "碳配额"
+
+    quantity_match = _re.search(
+        r"(?:登记数量|交易数量|注销数量|操作数量|数量)"
+        r"[：:]?\s*"
+        r"([\d,.]+)\s*"
+        r"(?:tCO2e|tco2e|吨二氧化碳当量|吨)?",
+        text,
+        flags=_re.IGNORECASE,
+    )
+
+    if quantity_match:
+        arguments["quantity_tco2e"] = float(
+            quantity_match.group(1).replace(",", "")
+        )
+
+    market_price_match = _re.search(
+        r"(?:市场单价|估值单价)"
+        r"[：:]?\s*"
+        r"([\d,.]+)\s*(?:元)?",
+        text,
+    )
+
+    if market_price_match:
+        arguments[
+            "estimated_market_unit_price_cny"
+        ] = float(
+            market_price_match.group(1).replace(",", "")
+        )
+
+    acquisition_price_match = _re.search(
+        r"(?:取得单价|购入单价|登记单价)"
+        r"[：:]?\s*"
+        r"([\d,.]+)\s*(?:元)?",
+        text,
+    )
+
+    if acquisition_price_match:
+        arguments[
+            "acquisition_unit_price_cny"
+        ] = float(
+            acquisition_price_match.group(1).replace(",", "")
+        )
+
+    transaction_price_match = _re.search(
+        r"(?:交易单价|注销单价|操作单价|单价)"
+        r"[：:]?\s*"
+        r"([\d,.]+)\s*(?:元)?",
+        text,
+    )
+
+    if transaction_price_match:
+        arguments["unit_price_cny"] = float(
+            transaction_price_match.group(1).replace(",", "")
+        )
+
+    counterparty_match = _re.search(
+        r"(?:交易对手|对手方)[：:]\s*"
+        r"([^，。；;\n]+)",
+        text,
+    )
+
+    if counterparty_match:
+        arguments["counterparty"] = (
+            counterparty_match.group(1).strip()
+        )
+
+    purpose_match = _re.search(
+        r"(?:用途|注销用途|履约用途)[：:]\s*"
+        r"([^，。；;\n]+)",
+        text,
+    )
+
+    if purpose_match:
+        arguments["purpose"] = (
+            purpose_match.group(1).strip()
+        )
+
+    date_match = _re.search(
+        r"\b(20\d{2})[-/年](\d{1,2})[-/月](\d{1,2})日?\b",
+        text,
+    )
+
+    if date_match:
+        arguments["transaction_date"] = (
+            f"{int(date_match.group(1)):04d}-"
+            f"{int(date_match.group(2)):02d}-"
+            f"{int(date_match.group(3)):02d}"
+        )
+
+    limit_match = _re.search(
+        r"(?:最近|前)\s*(\d+)\s*条",
+        text,
+    )
+
+    if limit_match:
+        arguments["limit"] = int(
+            limit_match.group(1)
+        )
+
+    return arguments
+
+
+def _extract_retrofit_project_arguments(
+    user_text: str,
+) -> dict[str, Any]:
+    """从自然语言中提取节能改造项目管理 Subagent参数。"""
+
+    import re as _re
+
+    text = (user_text or "").strip()
+    lower_text = text.lower()
+    arguments: dict[str, Any] = {}
+
+    project_id_match = _re.search(
+        r"\bRP-\d{14}-[A-Za-z0-9]{6}\b",
+        text,
+        flags=_re.IGNORECASE,
+    )
+
+    task_id_match = _re.search(
+        r"\bTASK-\d{14}-[A-Za-z0-9]{4}\b",
+        text,
+        flags=_re.IGNORECASE,
+    )
+
+    if project_id_match:
+        arguments["project_id"] = (
+            project_id_match.group(0).upper()
+        )
+
+    if task_id_match:
+        arguments["task_id"] = (
+            task_id_match.group(0).upper()
+        )
+
+    if any(
+        keyword in text
+        for keyword in (
+            "项目列表",
+            "所有项目",
+            "全部项目",
+            "列出项目",
+        )
+    ):
+        arguments["action"] = "list_projects"
+
+    elif any(
+        keyword in text
+        for keyword in (
+            "新增任务",
+            "添加任务",
+            "创建任务",
+        )
+    ):
+        arguments["action"] = "add_task"
+
+    elif (
+        any(
+            keyword in text
+            for keyword in (
+                "更新任务",
+                "任务进度",
+                "完成任务",
+                "任务状态",
+                "登记费用",
+                "实际费用",
+            )
+        )
+        and task_id_match
+    ):
+        arguments["action"] = "update_task"
+
+    elif any(
+        keyword in text
+        for keyword in (
+            "创建改造项目",
+            "创建项目",
+            "建立改造项目",
+            "项目立项",
+            "立项",
+        )
+    ):
+        arguments["action"] = "create_project"
+
+    else:
+        arguments["action"] = "get_project"
+
+    labelled_project_name = _re.search(
+        r"(?:项目名称|项目名)[：:]\s*"
+        r"([^，。；;\n]+)",
+        text,
+    )
+
+    if labelled_project_name:
+        arguments["project_name"] = (
+            labelled_project_name.group(1).strip()
+        )
+    elif arguments["action"] == "create_project":
+        create_name_match = _re.search(
+            r"(?:为|给)?"
+            r"([^，。；;\n]{2,60}?)"
+            r"(?:创建|建立|发起|立项)"
+            r"(?:一个|一项)?"
+            r"(?:节能降碳|节能|降碳|综合)?"
+            r"改造项目",
+            text,
+        )
+
+        if create_name_match:
+            name = create_name_match.group(1).strip()
+            name = _re.sub(
+                r"^(请|作为节能改造项目管理 Subagent)",
+                "",
+                name,
+            ).strip()
+
+            arguments["project_name"] = name
+
+    task_name_match = _re.search(
+        r"(?:任务名称|任务名|新增任务|添加任务|创建任务)"
+        r"[：:]?\s*"
+        r"([^，。；;\n]+)",
+        text,
+    )
+
+    if (
+        task_name_match
+        and arguments["action"] == "add_task"
+    ):
+        arguments["task_name"] = (
+            task_name_match.group(1).strip()
+        )
+
+    manager_match = _re.search(
+        r"(?:项目负责人|项目经理|负责人)"
+        r"[：:]?\s*"
+        r"([^，。；;\n]+)",
+        text,
+    )
+
+    if manager_match:
+        manager_value = manager_match.group(1).strip()
+
+        if arguments["action"] == "create_project":
+            arguments["project_manager"] = manager_value
+        else:
+            arguments["owner"] = manager_value
+
+    budget_match = _re.search(
+        r"(?:总预算|项目预算)"
+        r"[：:]?\s*"
+        r"([\d,.]+)\s*(万元|元)?",
+        text,
+    )
+
+    if budget_match:
+        value = float(
+            budget_match.group(1).replace(",", "")
+        )
+
+        if budget_match.group(2) == "万元":
+            value *= 10000
+
+        arguments["budget_total_cny"] = value
+
+    task_budget_match = _re.search(
+        r"(?:任务预算)"
+        r"[：:]?\s*"
+        r"([\d,.]+)\s*(万元|元)?",
+        text,
+    )
+
+    if task_budget_match:
+        value = float(
+            task_budget_match.group(1).replace(",", "")
+        )
+
+        if task_budget_match.group(2) == "万元":
+            value *= 10000
+
+        arguments["task_budget_cny"] = value
+
+    actual_cost_match = _re.search(
+        r"(?:实际费用|实际成本|已发生费用|登记费用)"
+        r"[：:]?\s*"
+        r"([\d,.]+)\s*(万元|元)?",
+        text,
+    )
+
+    if actual_cost_match:
+        value = float(
+            actual_cost_match.group(1).replace(",", "")
+        )
+
+        if actual_cost_match.group(2) == "万元":
+            value *= 10000
+
+        arguments["actual_cost_cny"] = value
+
+    progress_match = _re.search(
+        r"(?:进度|完成度)"
+        r"[：:]?\s*"
+        r"(\d+(?:\.\d+)?)\s*%",
+        text,
+    )
+
+    if progress_match:
+        arguments["progress_percent"] = float(
+            progress_match.group(1)
+        )
+
+    status_values = (
+        "已完成",
+        "进行中",
+        "待开始",
+        "暂停",
+        "已取消",
+    )
+
+    for status_value in status_values:
+        if status_value in text:
+            arguments["status"] = status_value
+            break
+
+    if "高优先级" in text or "优先级高" in text:
+        arguments["priority"] = "高"
+    elif "低优先级" in text or "优先级低" in text:
+        arguments["priority"] = "低"
+    elif "中优先级" in text or "优先级中" in text:
+        arguments["priority"] = "中"
+
+    date_values = _re.findall(
+        r"\b20\d{2}[-/年]\d{1,2}[-/月]\d{1,2}日?\b",
+        text,
+    )
+
+    normalized_dates = []
+
+    for date_value in date_values:
+        normalized = (
+            date_value
+            .replace("年", "-")
+            .replace("月", "-")
+            .replace("日", "")
+            .replace("/", "-")
+        )
+
+        parts = normalized.split("-")
+
+        if len(parts) == 3:
+            normalized_dates.append(
+                f"{int(parts[0]):04d}-"
+                f"{int(parts[1]):02d}-"
+                f"{int(parts[2]):02d}"
+            )
+
+    if arguments["action"] == "create_project":
+        if normalized_dates:
+            arguments["start_date"] = normalized_dates[0]
+
+        if len(normalized_dates) >= 2:
+            arguments["planned_end_date"] = (
+                normalized_dates[1]
+            )
+
+    elif arguments["action"] == "add_task":
+        if normalized_dates:
+            arguments["due_date"] = normalized_dates[-1]
+
+    limit_match = _re.search(
+        r"(?:最近|前)\s*(\d+)\s*个项目",
+        text,
+    )
+
+    if limit_match:
+        arguments["limit"] = int(
+            limit_match.group(1)
+        )
+
+    return arguments
+
+
+def _extract_deterministic_employee_arguments(
+    tool_name: str,
+    user_text: str,
+) -> dict[str, Any]:
+    if tool_name == "energy_carbon_delivery_subagent":
+        return _extract_energy_carbon_delivery_arguments(
+            user_text
+        )
+
+    if tool_name == "carbon_asset_operations_subagent":
+        return _extract_carbon_asset_arguments(
+            user_text
+        )
+
+    if tool_name == "retrofit_project_manager_subagent":
+        return _extract_retrofit_project_arguments(
+            user_text
+        )
+
+    if tool_name == "power_bill_audit_subagent":
+        return _extract_power_bill_audit_arguments(
+            user_text
+        )
+
+    return {}
+
+
 def _extract_power_bill_audit_arguments(
     user_text: str,
 ) -> dict[str, Any] | None:
@@ -1403,6 +2219,56 @@ def _extract_power_bill_audit_arguments(
 
     if not text:
         return None
+
+    # power-list-deterministic-extraction-v1
+    # 识别“查询最近N条稽核台账”等只读查询，
+    # 避免返回OpenAI风格tool_calls。
+    import re as _power_re
+
+    list_intent = any(
+        keyword in text
+        for keyword in (
+            "稽核台账",
+            "电费台账",
+            "历史稽核",
+            "历史记录",
+            "稽核记录",
+            "最近记录",
+            "记录列表",
+        )
+    )
+
+    if _power_re.search(
+        r"(?:最近|前)\s*\d+\s*条",
+        text,
+    ):
+        list_intent = True
+
+    if _power_re.search(
+        r"\blist\b",
+        text,
+        flags=_power_re.IGNORECASE,
+    ):
+        list_intent = True
+
+    if list_intent:
+        limit_match = _power_re.search(
+            r"(?:最近|前)?\s*(\d+)\s*条",
+            text,
+        )
+
+        limit = (
+            int(limit_match.group(1))
+            if limit_match
+            else 20
+        )
+
+        limit = max(1, min(limit, 100))
+
+        return {
+            "action": "list",
+            "limit": limit,
+        }
 
     arguments: dict[str, Any] = {
         "action": "audit",
@@ -1509,72 +2375,352 @@ def _extract_power_bill_audit_arguments(
 
 def _format_internal_employee_result(
     function_name: str,
-    result: dict[str, Any],
+    tool_result: dict,
 ) -> str:
-    """只使用工具真实返回值生成用户可见结果，不让模型二次编造。"""
+    """将垂直业务Subagent结果转换为正式业务输出。"""
 
-    if not isinstance(result, dict):
+    subagent_names = {
+        "energy_carbon_delivery_subagent":
+            "能碳诊断报告 Subagent",
+        "power_bill_audit_subagent":
+            "电费账单稽核 Subagent",
+        "retrofit_project_manager_subagent":
+            "节能改造项目管理 Subagent",
+        "carbon_asset_operations_subagent":
+            "碳资产运营 Subagent",
+    }
+
+    result_titles = {
+        "energy_carbon_delivery_subagent":
+            "能碳诊断报告生成完成",
+        "power_bill_audit_subagent":
+            "电费账单稽核完成",
+        "retrofit_project_manager_subagent":
+            "节能改造项目查询完成",
+        "carbon_asset_operations_subagent":
+            "碳资产组合汇总完成",
+    }
+
+    subagent_name = subagent_names.get(
+        function_name,
+        function_name,
+    )
+
+    result_title = result_titles.get(
+        function_name,
+        "业务任务处理完成",
+    )
+
+    def format_value(value):
+        if isinstance(value, bool):
+            return "是" if value else "否"
+
+        if isinstance(value, float):
+            if value.is_integer():
+                return str(int(value))
+
+            return (
+                f"{value:.4f}"
+                .rstrip("0")
+                .rstrip(".")
+            )
+
+        if value is None:
+            return ""
+
+        return str(value)
+
+    if not isinstance(tool_result, dict):
         return (
-            f"{function_name}执行完成，但返回格式不是有效业务对象。"
+            "## 业务任务处理失败\n\n"
+            f"- 执行模块：{subagent_name}\n"
+            "- 错误信息：返回数据格式异常"
         )
 
-    if result.get("result") != "ok":
+    status = str(
+        tool_result.get("result", "ok")
+    ).lower()
+
+    if status not in {
+        "ok",
+        "success",
+        "completed",
+    }:
         error_message = (
-            result.get("message")
-            or result.get("error")
-            or "未知错误"
-        )
-        return (
-            f"数字员工执行失败。\n\n"
-            f"- 员工：{result.get('employee') or function_name}\n"
-            f"- 原因：{error_message}"
+            tool_result.get("message")
+            or tool_result.get("error")
+            or "业务任务执行失败"
         )
 
-    employee = result.get("employee") or function_name
-    message = result.get("message") or "任务执行完成"
+        return (
+            "## 业务任务处理失败\n\n"
+            f"- 执行模块：{subagent_name}\n"
+            f"- 错误信息：{error_message}"
+        )
 
     lines = [
-        f"## {employee}执行完成",
+        f"## {result_title}",
         "",
-        message,
+        f"- 执行模块：{subagent_name}",
     ]
 
-    visible_result = result.get("visible_result")
+    message = str(
+        tool_result.get("message", "")
+    ).strip()
 
-    if isinstance(visible_result, dict) and visible_result:
+    if message and message != result_title:
         lines.extend([
             "",
-            "### 执行结果",
+            message,
         ])
+
+    visible_result = tool_result.get(
+        "visible_result"
+    )
+
+    if isinstance(visible_result, dict):
+        visible_lines = []
 
         for key, value in visible_result.items():
-            lines.append(f"- {key}：{value}")
+            if value in (None, ""):
+                continue
 
-    audit = result.get("audit")
+            if isinstance(value, (dict, list)):
+                continue
 
-    if isinstance(audit, dict) and audit:
+            visible_lines.append(
+                f"- {key}：{format_value(value)}"
+            )
+
+        if visible_lines:
+            lines.extend([
+                "",
+                "### 执行结果",
+                *visible_lines,
+            ])
+
+    if (
+        function_name
+        == "energy_carbon_delivery_subagent"
+    ):
         lines.extend([
             "",
-            "### 稽核指标",
+            "### 报告交付",
         ])
 
-        audit_fields = (
-            ("audit_id", "稽核记录编号"),
-            ("bill_total_cny", "账单总额"),
-            ("component_total_cny", "费用分项合计"),
-            ("bill_difference_cny", "账单差异"),
-            ("unit_cost_cny_per_kwh", "综合用电单价"),
-            ("capacity_utilization_percent", "容量利用率"),
-            ("recommended_capacity_scenario_kva", "建议容量情景值"),
-            ("estimated_monthly_saving_cny", "预计月度节省"),
-            ("estimated_annual_saving_cny", "预计年度节省"),
+        report_fields = [
+            ("project_name", "项目名称"),
+            ("project_id", "项目编号"),
+            ("delivery_batch_id", "交付批次"),
+            ("executed_at", "生成时间"),
+        ]
+
+        for key, label in report_fields:
+            value = tool_result.get(key)
+
+            if value not in (None, ""):
+                lines.append(
+                    f"- {label}：{format_value(value)}"
+                )
+
+        validation = tool_result.get(
+            "validation"
         )
 
-        for field_name, label in audit_fields:
-            if field_name in audit:
-                lines.append(f"- {label}：{audit[field_name]}")
+        if isinstance(validation, dict):
+            score = validation.get(
+                "completeness_score"
+            )
 
-    anomalies = result.get("anomalies")
+            if score is not None:
+                lines.append(
+                    "- 数据完整度："
+                    f"{format_value(score)}%"
+                )
+
+        download_url = tool_result.get(
+            "download_url"
+        )
+
+        if download_url:
+            lines.append(
+                "- PDF报告："
+                f"[点击下载报告]({download_url})"
+            )
+
+        calculation = tool_result.get(
+            "calculation_results"
+        )
+
+        if isinstance(calculation, dict):
+            metric_fields = [
+                (
+                    "building_area_m2",
+                    "建筑面积",
+                    "m²",
+                ),
+                (
+                    "electricity_kwh",
+                    "年度用电量",
+                    "kWh",
+                ),
+                (
+                    "natural_gas_m3",
+                    "年度天然气用量",
+                    "m³",
+                ),
+                (
+                    "total_emissions_tco2e",
+                    "年度碳排放量",
+                    "tCO₂e",
+                ),
+                (
+                    "carbon_intensity_kgco2e_per_m2",
+                    "单位面积碳排放强度",
+                    "kgCO₂e/m²",
+                ),
+            ]
+
+            metric_lines = []
+
+            for key, label, unit in metric_fields:
+                value = calculation.get(key)
+
+                if value is None:
+                    continue
+
+                metric_lines.append(
+                    f"- {label}："
+                    f"{format_value(value)} {unit}"
+                )
+
+            if metric_lines:
+                lines.extend([
+                    "",
+                    "### 核心诊断指标",
+                    *metric_lines,
+                ])
+
+    # power-list-result-format-v1
+    if (
+        function_name
+        == "power_bill_audit_subagent"
+    ):
+        records = tool_result.get("records")
+        record_count = tool_result.get(
+            "record_count"
+        )
+
+        if isinstance(records, list):
+            lines.extend([
+                "",
+                "### 电费稽核台账",
+            ])
+
+            if record_count is not None:
+                lines.append(
+                    "- 返回记录数："
+                    f"{format_value(record_count)}"
+                )
+
+            if not records:
+                lines.append("- 暂无稽核台账记录")
+
+            for index, record in enumerate(
+                records,
+                start=1,
+            ):
+                if not isinstance(record, dict):
+                    lines.append(
+                        f"{index}. {record}"
+                    )
+                    continue
+
+                project_name = record.get(
+                    "project_name",
+                    "未命名项目",
+                )
+                billing_month = record.get(
+                    "billing_month",
+                    "",
+                )
+                status_text = record.get(
+                    "verification_status",
+                    "",
+                )
+
+                heading = str(project_name)
+
+                if billing_month:
+                    heading += f"｜{billing_month}"
+
+                if status_text:
+                    heading += f"｜{status_text}"
+
+                lines.append(
+                    f"{index}. {heading}"
+                )
+
+                details = [
+                    (
+                        "稽核编号",
+                        record.get("audit_id"),
+                        "",
+                    ),
+                    (
+                        "总电费",
+                        record.get(
+                            "total_charge_cny"
+                        ),
+                        "元",
+                    ),
+                    (
+                        "用电量",
+                        record.get(
+                            "electricity_kwh"
+                        ),
+                        "kWh",
+                    ),
+                    (
+                        "综合电价",
+                        record.get(
+                            "unit_cost_cny_per_kwh"
+                        ),
+                        "元/kWh",
+                    ),
+                    (
+                        "异常数量",
+                        record.get(
+                            "anomaly_count"
+                        ),
+                        "",
+                    ),
+                    (
+                        "工单编号",
+                        record.get(
+                            "work_order_id"
+                        ),
+                        "",
+                    ),
+                    (
+                        "预计年度节省",
+                        record.get(
+                            "estimated_annual_saving_cny"
+                        ),
+                        "元",
+                    ),
+                ]
+
+                for label, value, unit in details:
+                    if value in (None, ""):
+                        continue
+
+                    lines.append(
+                        f"   - {label}："
+                        f"{format_value(value)}{unit}"
+                    )
+
+    anomalies = tool_result.get("anomalies")
 
     if isinstance(anomalies, list) and anomalies:
         lines.extend([
@@ -1582,52 +2728,194 @@ def _format_internal_employee_result(
             "### 发现的异常",
         ])
 
-        for index, anomaly in enumerate(anomalies, start=1):
-            if not isinstance(anomaly, dict):
-                continue
+        for index, anomaly in enumerate(
+            anomalies,
+            start=1,
+        ):
+            if isinstance(anomaly, dict):
+                severity = anomaly.get(
+                    "severity",
+                    "",
+                )
+                anomaly_message = anomaly.get(
+                    "message",
+                    "",
+                )
+                code = anomaly.get(
+                    "code",
+                    "",
+                )
 
-            severity = anomaly.get("severity", "未分级")
-            code = anomaly.get("code", "")
-            message_text = anomaly.get("message", "")
+                item = f"{index}. "
 
-            lines.append(
-                f"{index}. 【{severity}】{message_text}"
-                + (f"（{code}）" if code else "")
-            )
+                if severity:
+                    item += f"【{severity}】"
 
-    work_order = result.get("work_order")
+                item += str(anomaly_message)
 
-    if isinstance(work_order, dict) and work_order:
+                if code:
+                    item += f"（{code}）"
+
+                lines.append(item)
+            else:
+                lines.append(
+                    f"{index}. {anomaly}"
+                )
+
+    project = tool_result.get("project")
+
+    if (
+        function_name
+        == "retrofit_project_manager_subagent"
+        and isinstance(project, dict)
+    ):
+        tasks = project.get("tasks")
+
+        if isinstance(tasks, list) and tasks:
+            lines.extend([
+                "",
+                "### 项目任务",
+            ])
+
+            for index, task in enumerate(
+                tasks,
+                start=1,
+            ):
+                if not isinstance(task, dict):
+                    lines.append(
+                        f"{index}. {task}"
+                    )
+                    continue
+
+                task_name = task.get(
+                    "task_name",
+                    "未命名任务",
+                )
+                task_status = task.get(
+                    "status",
+                    "",
+                )
+                progress = task.get(
+                    "progress_percent",
+                    "",
+                )
+                owner = task.get(
+                    "owner",
+                    "",
+                )
+
+                lines.append(
+                    f"{index}. {task_name}"
+                )
+
+                details = []
+
+                if task_status:
+                    details.append(
+                        f"状态：{task_status}"
+                    )
+
+                if progress != "":
+                    details.append(
+                        "进度："
+                        f"{format_value(progress)}%"
+                    )
+
+                if owner:
+                    details.append(
+                        f"负责人：{owner}"
+                    )
+
+                if details:
+                    lines.append(
+                        "   - "
+                        + "；".join(details)
+                    )
+
+    portfolio = tool_result.get(
+        "portfolio_by_type"
+    )
+
+    if (
+        function_name
+        == "carbon_asset_operations_subagent"
+        and isinstance(portfolio, dict)
+        and portfolio
+    ):
         lines.extend([
             "",
-            "### 稽核工单",
-            f"- 工单编号：{work_order.get('work_order_id', '')}",
-            f"- 状态：{work_order.get('status', '')}",
-            f"- 优先级：{work_order.get('priority', '')}",
-            f"- 创建时间：{work_order.get('created_at', '')}",
+            "### 资产分类",
         ])
 
-    changes = result.get("business_state_changes")
+        for asset_type, summary in portfolio.items():
+            if not isinstance(summary, dict):
+                continue
 
-    if isinstance(changes, list) and changes:
+            count = summary.get(
+                "asset_count",
+                0,
+            )
+            available = summary.get(
+                "available_tco2e",
+                0,
+            )
+            estimated_value = summary.get(
+                "estimated_value_cny",
+                0,
+            )
+
+            lines.append(
+                f"- {asset_type}："
+                f"{format_value(count)}项，"
+                f"可用{format_value(available)} tCO₂e，"
+                f"估值{format_value(estimated_value)}元"
+            )
+
+    business_changes = tool_result.get(
+        "business_state_changes"
+    )
+
+    if (
+        isinstance(business_changes, list)
+        and business_changes
+    ):
         lines.extend([
             "",
             "### 业务状态变化",
         ])
 
-        for change in changes:
+        for change in business_changes:
             if not isinstance(change, dict):
                 continue
 
-            lines.append(
-                f"- {change.get('business_object', '业务对象')}："
-                f"{change.get('before', '')}"
-                f" → {change.get('after', '')}"
+            business_object = change.get(
+                "business_object",
+                "业务对象",
+            )
+            before = change.get(
+                "before",
+                "",
+            )
+            after = change.get(
+                "after",
+                "",
             )
 
-    recommendations = result.get("recommendations")
+            lines.append(
+                f"- {business_object}："
+                f"{before} → {after}"
+            )
 
-    if isinstance(recommendations, list) and recommendations:
+    recommendations = (
+        tool_result.get("recommendations")
+        or tool_result.get("suggestions")
+        or tool_result.get("advice")
+    )
+
+    if (
+        isinstance(recommendations, list)
+        and recommendations
+    ):
         lines.extend([
             "",
             "### 后续建议",
@@ -1637,14 +2925,59 @@ def _format_internal_employee_result(
             recommendations,
             start=1,
         ):
-            lines.append(f"{index}. {recommendation}")
+            if isinstance(recommendation, dict):
+                priority = str(
+                    recommendation.get(
+                        "priority",
+                        "",
+                    )
+                ).strip()
+
+                title = str(
+                    recommendation.get(
+                        "title",
+                        "优化建议",
+                    )
+                ).strip()
+
+                heading = f"{index}. "
+
+                if priority:
+                    heading += f"【{priority}】"
+
+                heading += title
+                lines.append(heading)
+
+                reason = recommendation.get(
+                    "reason"
+                )
+                measure = recommendation.get(
+                    "measure"
+                )
+
+                if reason:
+                    lines.append(
+                        f"   - 诊断依据：{reason}"
+                    )
+
+                if measure:
+                    lines.append(
+                        f"   - 建议措施：{measure}"
+                    )
+            else:
+                lines.append(
+                    f"{index}. {recommendation}"
+                )
 
     lines.extend([
         "",
-        "> 以上编号、金额、状态及业务记录均来自员工脚本的真实执行结果。",
+        "> 本结果由对应业务 Subagent "
+        "基于真实项目数据和业务规则生成。",
     ])
 
     return "\n".join(lines)
+
+
 
 
 @dataclass(slots=True)
@@ -1713,14 +3046,20 @@ async def run_tool_loop(
             forced_tool_name,
         )
 
-    # 核心数字员工由Function Router直接执行。
+    # 核心业务 Subagent由Function Router直接执行。
     # OpenClaw只负责接收并展示最终结果，避免委托工具调用反复循环。
     if (
-        forced_tool_name == "power_bill_audit_subagent"
+        forced_tool_name in {
+            "power_bill_audit_subagent",
+            "retrofit_project_manager_subagent",
+            "carbon_asset_operations_subagent",
+            "energy_carbon_delivery_subagent",
+        
+        }
         and resume_tool_context is None
     ):
         deterministic_arguments = (
-            _extract_power_bill_audit_arguments(user_text)
+            _extract_deterministic_employee_arguments(forced_tool_name, user_text)
         )
 
         if deterministic_arguments is not None:
@@ -1730,7 +3069,7 @@ async def run_tool_loop(
             )
 
             tool_call_id = (
-                "call_power_bill_audit_"
+                f"call_{forced_tool_name}_"
                 f"{int(time.time() * 1000)}"
             )
 
