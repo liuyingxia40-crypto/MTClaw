@@ -2,6 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+PYTHON_BIN="$REPO_ROOT/.venv/bin/python"
 TARGET_DIR="${HOME}/.function-router"
 CONFIG_PATH="${TARGET_DIR}/config.json"
 PID_FILE="${TARGET_DIR}/function-router.pid"
@@ -12,7 +13,7 @@ if [ ! -f "$CONFIG_PATH" ]; then
   exit 1
 fi
 
-PORT=$(CONFIG_PATH="$CONFIG_PATH" python3 -c '
+PORT=$(CONFIG_PATH="$CONFIG_PATH" "$PYTHON_BIN" -c '
 import json
 import os
 from pathlib import Path
@@ -37,17 +38,14 @@ done
 mkdir -p "$(dirname "$LOG_FILE")"
 cd "$REPO_ROOT"
 
-if command -v function-router >/dev/null 2>&1; then
-  nohup function-router --config "$CONFIG_PATH" > "$LOG_FILE" 2>&1 &
-else
-  nohup python3 -m function_router.server --config "$CONFIG_PATH" > "$LOG_FILE" 2>&1 &
-fi
+nohup "$PYTHON_BIN" -m function_router.server \
+  --config "$CONFIG_PATH" > "$LOG_FILE" 2>&1 &
 NEW_PID=$!
 echo "$NEW_PID" > "$PID_FILE"
 
 HEALTH_URL="http://127.0.0.1:${PORT}/health"
 for _ in $(seq 1 30); do
-  if HEALTH_JSON=$(HEALTH_URL="$HEALTH_URL" python3 -c '
+  if HEALTH_JSON=$(HEALTH_URL="$HEALTH_URL" "$PYTHON_BIN" -c '
 import json
 import os
 import urllib.request
@@ -56,7 +54,7 @@ url = os.environ["HEALTH_URL"]
 with urllib.request.urlopen(url, timeout=2) as response:
     print(response.read().decode("utf-8"))
 ' 2>/dev/null); then
-    TOOLS_LOADED=$(HEALTH_JSON="$HEALTH_JSON" python3 -c '
+    TOOLS_LOADED=$(HEALTH_JSON="$HEALTH_JSON" "$PYTHON_BIN" -c '
 import json
 import os
 

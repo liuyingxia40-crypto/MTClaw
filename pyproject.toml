@@ -13,6 +13,7 @@ dependencies = [
   "fastapi>=0.100",
   "uvicorn>=0.20",
   "httpx>=0.24",
+    "reportlab>=4.0",
 ]
 
 [project.optional-dependencies]

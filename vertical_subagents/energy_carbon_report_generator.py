@@ -25,7 +25,7 @@ from reportlab.platypus import (
 )
 
 
-OUTPUT_OUTPUT_DIR = Path("/data/energy-carbon-reports/generated")
+DEFAULT_OUTPUT_DIR = Path("/data/energy-carbon-reports/generated")
 
 # 第一版测试用排放因子，后续可以替换成正式因子库
 DEFAULT_ELECTRICITY_FACTOR = 0.5554  # kgCO2/kWh
